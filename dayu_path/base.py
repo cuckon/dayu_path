@@ -6,6 +6,9 @@ __author__ = 'andyguo'
 import os
 import shutil
 import stat
+import logging
+from glob import iglob
+from collections import namedtuple
 
 from config import *
 
@@ -15,6 +18,46 @@ if os.path.supports_unicode_filenames:
         BASE_STRING_TYPE = unicode  # Python 2 unicode.
     except NameError:
         pass
+Pattern = namedtuple('Pattern', 'frame_pattern, padding')
+
+
+def try_restore_frame(func):
+    def _(self):
+        if not self.isdir() and self.frames:
+            return func(self.restore_pattern(self.frames[0]))
+        return func(self)
+    return _
+
+
+def _get_ext(path):
+    for ext in ADDITIONAL_EXTS:
+        if path.endswith(ext):
+            return ext
+    return os.path.splitext(path)[1]
+
+
+def _get_stem(path):
+    ext = _get_ext(path)
+    name = os.path.basename(path)
+    return name if not ext else name[:-len(ext)]
+
+
+def _get_padding_len(glob_pattern):
+    """Get padding length from actual file system.
+
+    Assume '*' in *glob_pattern*.
+    Returns:
+        int or None: None if padding length can not be retrieved. Otherwise
+        padding length.
+    """
+    assert '*' in glob_pattern
+    any_file = next(iglob(glob_pattern), None)
+    if not any_file:
+        return None
+    re_frame = FRAME_REGEX.search(_get_stem(any_file))
+    if not re_frame:
+        return None
+    return len(re_frame.group(1))
 
 
 class DayuPath(BASE_STRING_TYPE):
@@ -37,8 +80,38 @@ class DayuPath(BASE_STRING_TYPE):
 
     def __init__(self, path, frames=None, missing=None):
         super(DayuPath, self).__init__()
-        self.frames = frames if frames else []
-        self.missing = missing if missing else []
+        self._frames = frames
+        self._missing = missing
+
+    def _update_frames(self):
+        # TODO: More graceful way?
+        if self.isdir():
+            return
+        if self._frames is None:
+            self_scanned = next(self.scan(), None)
+            if self_scanned:
+                self._frames = self_scanned._frames or []
+                self._missing = self_scanned._missing or []
+            else:
+                self._frames, self._missing = [], []
+
+    @property
+    def frames(self):
+        self._update_frames()
+        return self._frames
+
+    @frames.setter
+    def frames(self, val):
+        self._frames = val
+
+    @property
+    def missing(self):
+        self._update_frames()
+        return self._missing
+
+    @missing.setter
+    def missing(self, val):
+        self._missing = val
 
     def norm(self):
         return DayuPath(self.pathlib.normpath(self))
@@ -61,15 +134,16 @@ class DayuPath(BASE_STRING_TYPE):
 
     @property
     def name(self):
-        return DayuPath(self.pathlib.basename(self))
+        return self.pathlib.basename(self)
 
     @property
     def stem(self):
-        return DayuPath(self.pathlib.splitext(self.name)[0])
+        ext = self.ext
+        return self.name if not ext else self.name[:-len(self.ext)]
 
     @property
     def ext(self):
-        return DayuPath(self.pathlib.splitext(self)[1])
+        return _get_ext(self)
 
     @property
     def root(self):
@@ -98,14 +172,6 @@ class DayuPath(BASE_STRING_TYPE):
         return current
 
     def child(self, *children):
-        for child in children:
-            if self.pathlib.sep in child or \
-                    '/' in child or \
-                    (self.pathlib.altsep and self.pathlib.altsep in child) or \
-                    self.pathlib.pardir == child or \
-                    self.pathlib.curdir == child:
-                raise ValueError('unsafe string in {}'.format(child))
-
         new_path = self.pathlib.join(self, *children)
         return DayuPath(new_path)
 
@@ -141,12 +207,15 @@ class DayuPath(BASE_STRING_TYPE):
     def lstate(self):
         return os.lstat(self)
 
+    @try_restore_frame
     def exists(self):
         return self.pathlib.exists(self)
 
+    @try_restore_frame
     def lexists(self):
         return self.pathlib.lexists(self)
 
+    @try_restore_frame
     def isfile(self):
         return self.pathlib.isfile(self)
 
@@ -179,7 +248,7 @@ class DayuPath(BASE_STRING_TYPE):
             os.chown(self, uid, gid)
 
     def mkdir(self, parents=False, mode=0o777):
-        if self.exists():
+        if self.pathlib.exists(self):
             return
         if parents is True:
             os.makedirs(self, mode)
@@ -187,7 +256,7 @@ class DayuPath(BASE_STRING_TYPE):
             os.mkdir(self, mode)
 
     def rmdir(self, parents=False):
-        if not self.exists():
+        if self.pathlib.exists(self):
             return
         if parents is True:
             os.removedirs(self)
@@ -249,7 +318,7 @@ class DayuPath(BASE_STRING_TYPE):
         if self.ext.lower() in tuple(EXT_SINGLE_MEDIA.keys()):
             return -1
 
-        match = FRAME_REGEX.match(self.stem)
+        match = FRAME_REGEX.search(self.stem)
         if match:
             return int(match.group(1))
         return -1
@@ -275,95 +344,58 @@ class DayuPath(BASE_STRING_TYPE):
     def pattern(self):
         """
         提取出当前路径的pattern 标识。
-        支持 %0xd，####，$Fn 这三种形式
-        :return: 如果匹配成功，返回匹配的pattern string；否则返回None
+        支持 %0xd，####，$Fn, * 这4种形式
+        :return: 如果匹配成功，返回匹配的Pattern(frame_pattern, padding)；否则返回None
         """
-        match = PATTERN_REGEX.match(self.stem)
-        return match.group(1) or match.group(3) or match.group(4) if match else None
+        for pattern_handler in PATTERN_HANDLERS.values():
+            matched = pattern_handler.re.search(self.stem)
+            if matched:
+                frame_pattern = matched.group(0)
+                padding = pattern_handler.get_padding(matched)
+                if padding is None:
+                    assert '*' in self
+                    padding = _get_padding_len(self)
+                return Pattern(frame_pattern, padding)
+        return None
 
-    def to_pattern(self, pattern='%'):
+    def to_pattern(self, new_identifier='%'):
         """
         将绝对路径转换为pattern 形式的路径。
-        :param pattern: '%' 表示变成%04d 类型的路径；'#' 表示变成#### 类型类型的路径；'$'表示变成$F4 类型的路径
+        :param new_identifier: '%' 表示变成%04d 类型的路径；'#' 表示变成#### 类型类型的路径；'$'表示变成$F4 类型的路径
         :return: DayuPath 对象
         """
         if self.ext and self.ext.lower() in tuple(EXT_SINGLE_MEDIA.keys()):
             return self
 
-        pattern_match = PATTERN_REGEX.match(self.stem)
-        if pattern_match:
-            if pattern_match.group(1):
-                return self.__convert_percentage_pattern(pattern, pattern_match)
-            if pattern_match.group(3):
-                return self.__convert_sharp_pattern(pattern, pattern_match)
-            if pattern_match.group(4):
-                return self.__convert_dollar_pattern(pattern, pattern_match)
+        if new_identifier not in PATTERN_HANDLERS:
+            logging.warn(
+                'Pattern Identifier cannot be recognised: ' + new_identifier
+            )
             return self
 
-        else:
-            match = FRAME_REGEX.match(self.stem)
-            if match:
-                return self.__convert_normal_frame_pattern(match, pattern)
-            else:
+        old_pattern = self.pattern
+        new_pattern = PATTERN_HANDLERS[new_identifier].format
+        if old_pattern:
+            if old_pattern.frame_pattern.startswith(new_identifier):
                 return self
-
-    def __convert_normal_frame_pattern(self, match, pattern):
-        if pattern == '%':
-            replace_string = '%0{}d'.format(len(match.group(1)))
-        elif pattern == '#':
-            replace_string = '#' * len(match.group(1))
-        elif pattern == '$':
-            replace_string = '$F{}'.format(len(match.group(1)))
+            padding_len = old_pattern.padding
+            result = self.replace(
+                old_pattern.frame_pattern,
+                new_pattern(padding_len),
+            )
         else:
-            replace_string = '%0{}d'.format(len(match.group(1)))
+            result = os.path.join(
+                self.parent,
+                FRAME_REGEX.sub(
+                    lambda s: new_pattern(len(s.group(1))), self.stem
+                ) + (self.ext or '')
+            )
 
-        new_name = self.name[:match.start(1)] + replace_string + self.name[match.end(1):]
-        return DayuPath(self.parent + '/' + new_name)
-
-    def __convert_dollar_pattern(self, pattern, pattern_match):
-        if pattern == '%':
-            return DayuPath(self.replace(pattern_match.group(4),
-                                         '%0{}d'.format(
-                                                 pattern_match.group(5) if pattern_match.group(5) else 1)))
-        if pattern == '#':
-            return DayuPath(self.replace(pattern_match.group(4),
-                                         '#' * int(pattern_match.group(5) if pattern_match.group(5) else 1)))
-        if pattern == '$':
-            return self
-        else:
-            return DayuPath(self.replace(pattern_match.group(4),
-                                         '%0{}d'.format(
-                                                 pattern_match.group(5) if pattern_match.group(5) else 1)))
-
-    def __convert_sharp_pattern(self, pattern, pattern_match):
-        if pattern == '%':
-            return DayuPath(self.replace(pattern_match.group(3),
-                                         '%0{}d'.format(len(pattern_match.group(3)))))
-        if pattern == '#':
-            return self
-        if pattern == '$':
-            return DayuPath(self.replace(pattern_match.group(3),
-                                         '$F{}'.format(len(pattern_match.group(3)))))
-        else:
-            return DayuPath(self.replace(pattern_match.group(3),
-                                         '%0{}d'.format(len(pattern_match.group(3)))))
-
-    def __convert_percentage_pattern(self, pattern, pattern_match):
-        if pattern == '%':
-            return self
-        if pattern == '#':
-            return DayuPath(self.replace(pattern_match.group(1),
-                                         '#' * int(pattern_match.group(2) if pattern_match.group(2) else 1)))
-        if pattern == '$':
-            return DayuPath(self.replace(pattern_match.group(1),
-                                         '$F{}'.format(
-                                                 int(pattern_match.group(2) if pattern_match.group(2) else 1))))
-        else:
-            return self
+        return DayuPath(result)
 
     def escape(self):
         import re
-        return re.sub("(!|\$|#|&|\"|\'|\(|\)| |\||<|>|`|;)", r'\\\1', self)
+        return re.sub(r"([!$#&\"\'\(\) \|<>`;])", r'\\\1', self)
 
     def restore_pattern(self, frame):
         """
@@ -377,24 +409,14 @@ class DayuPath(BASE_STRING_TYPE):
         if int(frame) < 0:
             return self
 
-        match = PATTERN_REGEX.match(self.name)
-        if match:
-            if match.group(1):
-                return DayuPath(self.replace(match.group(1),
-                                             '{{:0{frame_padding}d}}'.format(
-                                                     frame_padding=int(match.group(2) if match.group(2) else 1)).format(
-                                                     frame)))
-            elif match.group(3):
-                return DayuPath(self.replace(match.group(3),
-                                             '{{:0{frame_padding}d}}'.format(
-                                                     frame_padding=len(match.group(3))).format(frame)))
-            elif match.group(4):
-                return DayuPath(self.replace(match.group(4),
-                                             '{{:0{frame_padding}d}}'.format(
-                                                     frame_padding=(match.group(5) if match.group(5) else 1)).format(
-                                                     frame)))
-        else:
+        pattern = self.pattern
+        if not pattern:
             return self
+
+        return DayuPath(self.replace(
+            pattern.frame_pattern,
+            '%0{}d'.format(pattern.padding) % frame,
+        ))
 
     def rename_sequence(self, dst_path, start=None, step=1, parents=False, keep_missing=False):
         if (not self.pattern) and (not dst_path.pattern):
@@ -420,18 +442,21 @@ class DayuPath(BASE_STRING_TYPE):
                                 '* source path is a pattern, but dst path is not a pattern\n')
 
     def copy_sequence(self, dst_path, start=None, step=1,
-                      times=False, permission=False, parents=False, keep_missing=False):
+                      times=False, permission=False, keep_missing=False,
+                      *_, **__  # capacity of old declaration
+                      ):
+        dst_path = DayuPath(dst_path)
+        if not dst_path.parent.exists():
+            os.makedirs(dst_path.parent)
         if (not self.pattern) and (not dst_path.pattern):
-            if parents:
-                dst_path.parent.mkdir(parents=True)
             self.copy(dst_path, times=times, permission=permission)
             return
 
         if self.pattern and self.frames and dst_path.pattern:
-            if parents:
-                dst_path.parent.mkdir(parents=True)
             start = start if start else self.frames[0]
             prev_frame = self.frames[0]
+            pattern = self.pattern
+            dst_pattern = dst_path.pattern
             for i in self.frames:
                 if keep_missing:
                     start += (i - prev_frame)
@@ -440,15 +465,21 @@ class DayuPath(BASE_STRING_TYPE):
                                                  permission=permission)
                     prev_frame = i
                 else:
-                    self.restore_pattern(i).copy(dst_path.restore_pattern(start),
+                    if dst_pattern.frame_pattern == '*':
+                        expanded_dst = dst_path.replace(
+                            '*', '%0{}d'.format(pattern.padding) % start,
+                        )
+                    else:
+                        expanded_dst = dst_path.restore_pattern(start)
+                    self.restore_pattern(i).copy(expanded_dst,
                                                  times=times,
                                                  permission=permission)
                     start += step
             return
 
     def scan(self, recursive=False, regex_pattern=None, ext_filters=None, function_filter=None, ignore_invisible=True):
-        from config import EXT_SINGLE_MEDIA, SCAN_IGNORE
-        if self.isfile() and self.lower().endswith(tuple(EXT_SINGLE_MEDIA.keys())):
+        from config import SCAN_IGNORE
+        if self.pathlib.isfile(self):
             yield self
             raise StopIteration
 
@@ -515,11 +546,11 @@ class DayuPath(BASE_STRING_TYPE):
         subprocess.Popen(['xdg-open', self if self.isdir() else self.parent])
 
     def show(self, show_file=False):
-        '''
+        """
         在不同的操作系统中直接弹出窗口，显示文件所在的路径
         :param show_file: 如果希望显示的是某个具体的文件，使用True；如果希望显示路径的上层文件夹，使用False
         :return:
-        '''
+        """
         import sys
         sub_func = getattr(self, '_show_in_{}'.format(sys.platform), None)
         if sub_func:

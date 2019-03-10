@@ -40,6 +40,11 @@ class TestDayuPath(TestCase):
         self.assertIsNotNone(path.mtime())
         self.assertIsNotNone(path.size())
 
+        star_path = self.mock_path.child('vfx_test/pl_0010_plt_v0001.*.exr')
+        self.assertTrue(star_path.isfile())
+        self.assertTrue(star_path.exists())
+        self.assertTrue(star_path.lexists())
+
     def test_frame(self):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/1.jpg').frame, -1)
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/12.jpg').frame, 12)
@@ -67,24 +72,27 @@ class TestDayuPath(TestCase):
         self.assertEqual(DayuPath(u'/Users/andyguo/Desktop/中文 1001.jpg').frame, 1001)
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/ttt/asdfasdf/pl_0010.1012.tiff').frame, 1012)
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/ttt/asdfasdf/pl_0010.1012.mov').frame, -1)
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/ttt/asdfasdf/test.1002.bgeo.sc').frame, 1002)
+
 
     def test_pattern(self):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_v0023.jpg').pattern, None)
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%d.jpg').pattern, '%d')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%02d.jpg').pattern, '%02d')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%03d.jpg').pattern, '%03d')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%04d.jpg').pattern, '%04d')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_#.jpg').pattern, '#')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_##.jpg').pattern, '##')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_###.jpg').pattern, '###')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_####.jpg').pattern, '####')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F.jpg').pattern, '$F')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F2.jpg').pattern, '$F2')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F3.jpg').pattern, '$F3')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F4.jpg').pattern, '$F4')
-        self.assertEqual(DayuPath(u'/Users/andyguo/Desktop/中文的测试$F4.jpg').pattern, '$F4')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_%04d_ani_$F4.jpg').pattern, '%04d')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/ani_$F4.mov').pattern, '$F4')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%d.jpg').pattern, ('%d', 1))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%02d.jpg').pattern, ('%02d', 2))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%03d.jpg').pattern, ('%03d', 3))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_%04d.jpg').pattern, ('%04d', 4))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_*.jpg').pattern, ('*', None))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_#.jpg').pattern, ('#', 1))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_##.jpg').pattern, ('##', 2))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_###.jpg').pattern, ('###', 3))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_####.jpg').pattern, ('####', 4))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F.jpg').pattern, ('$F', 1))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F2.jpg').pattern, ('$F2', 2))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F3.jpg').pattern, ('$F3', 3))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_0010_plt_$F4.jpg').pattern, ('$F4', 4))
+        self.assertEqual(DayuPath(u'/Users/andyguo/Desktop/中文的测试$F4.jpg').pattern, ('$F4', 4))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/pl_%04d_ani_$F4.jpg').pattern, ('%04d', 4))
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/ani_$F4.mov').pattern, ('$F4', 4))
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/abc.mov').pattern, None)
 
     def test_to_pattern(self):
@@ -98,8 +106,10 @@ class TestDayuPath(TestCase):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/1234.jpg').to_pattern(), '/Users/andyguo/Desktop/%04d.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/1234.jpg').to_pattern('#'), '/Users/andyguo/Desktop/####.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/1234.jpg').to_pattern('$'), '/Users/andyguo/Desktop/$F4.jpg')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/1234.jpg').to_pattern('*'), '/Users/andyguo/Desktop/*.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/1234.jpg').to_pattern('ss'),
-                         '/Users/andyguo/Desktop/%04d.jpg')
+                         '/Users/andyguo/Desktop/1234.jpg')
+
 
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/%02d.jpg').to_pattern('%'), '/Users/andyguo/Desktop/%02d.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/%02d.jpg').to_pattern('#'), '/Users/andyguo/Desktop/##.jpg')
@@ -110,6 +120,7 @@ class TestDayuPath(TestCase):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/%04d.jpg').to_pattern('%'), '/Users/andyguo/Desktop/%04d.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/%04d.jpg').to_pattern('#'), '/Users/andyguo/Desktop/####.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/%04d.jpg').to_pattern('$'), '/Users/andyguo/Desktop/$F4.jpg')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/%04d.jpg').to_pattern('*'), '/Users/andyguo/Desktop/*.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/%04d.jpg').to_pattern('1'), '/Users/andyguo/Desktop/%04d.jpg')
 
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/##.jpg').to_pattern('%'), '/Users/andyguo/Desktop/%02d.jpg')
@@ -121,7 +132,8 @@ class TestDayuPath(TestCase):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/####.jpg').to_pattern('%'), '/Users/andyguo/Desktop/%04d.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/####.jpg').to_pattern('#'), '/Users/andyguo/Desktop/####.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/####.jpg').to_pattern('$'), '/Users/andyguo/Desktop/$F4.jpg')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/####.jpg').to_pattern('f'), '/Users/andyguo/Desktop/%04d.jpg')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/####.jpg').to_pattern('*'), '/Users/andyguo/Desktop/*.jpg')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/####.jpg').to_pattern('f'), '/Users/andyguo/Desktop/####.jpg')
 
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F2.jpg').to_pattern('%'), '/Users/andyguo/Desktop/%02d.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F2.jpg').to_pattern('#'), '/Users/andyguo/Desktop/##.jpg')
@@ -132,7 +144,17 @@ class TestDayuPath(TestCase):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F4.jpg').to_pattern('%'), '/Users/andyguo/Desktop/%04d.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F4.jpg').to_pattern('#'), '/Users/andyguo/Desktop/####.jpg')
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F4.jpg').to_pattern('$'), '/Users/andyguo/Desktop/$F4.jpg')
-        self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F4.jpg').to_pattern('dd'), '/Users/andyguo/Desktop/%04d.jpg')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F4.jpg').to_pattern('*'), '/Users/andyguo/Desktop/*.jpg')
+        self.assertEqual(DayuPath('/Users/andyguo/Desktop/$F4.jpg').to_pattern('dd'), '/Users/andyguo/Desktop/$F4.jpg')
+
+        star_path = self.mock_path.child('vfx_test/pl_0010_plt_v0001.*.exr')
+        make_ground_truth = self.mock_path.child(
+            'vfx_test/pl_0010_plt_v0001.{}.exr'
+        ).format
+        self.assertEqual(star_path.to_pattern('%'), make_ground_truth('%04d'))
+        self.assertEqual(star_path.to_pattern('#'), make_ground_truth('####'))
+        self.assertEqual(star_path.to_pattern('$'), make_ground_truth('$F4'))
+        self.assertEqual(star_path.to_pattern('dd'), make_ground_truth('*'))
 
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/MVI1001.mov').to_pattern('%'),
                          '/Users/andyguo/Desktop/MVI1001.mov')
@@ -179,6 +201,7 @@ class TestDayuPath(TestCase):
         self.assertEqual(DayuPath('/Users/andyguo/Desktop/sd_0010_plt_v0002.1234.jpg').restore_pattern(None),
                          '/Users/andyguo/Desktop/sd_0010_plt_v0002.1234.jpg')
 
+
     def setUp(self):
         super(TestDayuPath, self).setUp()
 
@@ -207,6 +230,9 @@ class TestDayuPath(TestCase):
                         'recursive_test/inside/b_100.exr',
                         'recursive_test/inside/b_101.exr',
                         'recursive_test/inside/b_102.exr',
+                        'additional_exts/rock.1001.bgeo.sc',
+                        'additional_exts/rock.1002.bgeo.sc',
+                        'additional_exts/rock.1003.bgeo.sc',
                         ]
         for x in content_list:
             file_path = DayuPath(u'{}/{}'.format(self.mock_path, x))
@@ -219,6 +245,26 @@ class TestDayuPath(TestCase):
     def tearDown(self):
         super(TestDayuPath, self).tearDown()
         self.mock_path.rmtree()
+
+    def test_copy_sequence(self):
+        star_path = self.mock_path.child('vfx_test/pl_0010_plt_v0001.*.exr')
+        dst_path = self.mock_path.child('copy_test/copied_plt_v0001.*.exr')
+        star_path.copy_sequence(dst_path, start=1)
+        copied = list(dst_path.scan())
+        self.assertTrue(copied)
+        self.assertEqual(len(copied[0].frames), len(star_path.frames))
+        self.assertEqual(
+            sorted(dst_path.parent.listdir(only_name=True)),
+            [('copied_plt_v0001.%04d.exr' % (i+1)) for i in range(3)]
+        )
+
+    def test_additional_exts(self):
+        src_path = self.mock_path.child('additional_exts/rock.1001.bgeo.sc')
+        dst_path = self.mock_path.child('additional_exts_dst/rock.1001.bgeo.sc')
+        src_path.copy_sequence(dst_path)
+        copied = list(dst_path.scan())
+        self.assertTrue(copied)
+        self.assertEqual(len(copied[0].frames), len(src_path.frames))
 
     def test_scan(self):
         path = self.mock_path
@@ -240,15 +286,14 @@ class TestDayuPath(TestCase):
                                                                                                [1002, 1004]],
                                path.child('recursive_test', 'a_%03d.exr')                   : [[1, 2], []],
                                path.child('recursive_test', 'inside', 'b_%03d.exr')         : [[100, 101, 102], []],
+                               path.child('additional_exts', 'rock.%04d.bgeo.sc')           : [[1001, 1002, 1003], []],
                                }
         ground_truth_result.update({
             self.mock_path2.child('recursive_test', 'inside', 'b_%03d.exr'): [[100, 101, 102], []]
         })
 
-        print ground_truth_result.keys()
         for x in path.scan(recursive=True):
             if x:
-                print x
                 self.assertTrue(x in ground_truth_result.keys())
                 self.assertListEqual([x.frames, x.missing], ground_truth_result[x])
 
@@ -256,7 +301,7 @@ class TestDayuPath(TestCase):
             self.assertTrue(x in ground_truth_result.keys())
             self.assertListEqual([x.frames, x.missing], ground_truth_result[x])
 
-        for x in path.child('vfx_test', 'pl_0010_plt_v0001.1001.exr').scan():
+        for x in path.child('vfx_test', 'pl_0010_plt_v0001.%04d.exr').scan():
             self.assertEqual(x, path.child('vfx_test', 'pl_0010_plt_v0001.%04d.exr'))
             self.assertEqual(x.frames, [1001, 1002, 1003])
             self.assertEqual(x.missing, [])

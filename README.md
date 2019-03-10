@@ -7,7 +7,7 @@
 * 基于unipath，将文件路径作为对象处理
 * 更好的针对影视行业文件优化。可以快速得到frame count、version 等字段
 * 扫描文件自动拼合序列帧，并且可以识别丢帧
-* 更快捷的文件序列帧格式转换。支持%0?d、####、$F? 的三种形式
+* 更快捷的文件序列帧格式转换。支持%0?d、####、$F?、* 的四种形式
 * 支持用户自行对DayuPath 添加更多的方法、属性
 
 
@@ -103,3 +103,22 @@ ret = DayuPathPlugin.unregister('my_key')
 assert ret == True
 
 ```
+
+
+# Unit Test
+
+```
+python -m unittest
+```
+
+
+# Nova 更新
+
+* 新增了 `*` 的帧格式支持
+* 自动获取`frames`属性
+* 如果是序列，`exists`\`lexists`\`isfile`会判断序列结果
+* 更加符合简单的`copy_sequence()`调用形式
+* 不再对`child()`的参数进行检查(信任程序员)
+* 支持.bgeo.sc扩展名
+* `pattern()`返回的是`Pattern(frame_pattern, padding_length)`的`namedtuple`
+* 小修正(`excape()`的re表达式等)
